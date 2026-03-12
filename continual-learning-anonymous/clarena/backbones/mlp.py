@@ -1,0 +1,202 @@
+r"""
+The submodule in `backbones` for the basic MLP backbone network. It includes the basic MLP and the continual learning MLP.
+"""
+
+__all__ = ["MLP", "CLMLP"]
+
+import logging
+
+from torch import Tensor, nn
+
+from clarena.backbones import Backbone, CLBackbone
+
+# always get logger for built-in logging in each module
+pylogger = logging.getLogger(__name__)
+
+
+class MLP(Backbone):
+    """Multi-layer perceptron (MLP), a.k.a. fully connected network.
+
+    MLP is a dense network architecture with several fully connected layers, each followed by an activation function. The last layer connects to the output heads.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dims: list[int],
+        output_dim: int,
+        activation_layer: nn.Module | None = nn.ReLU,
+        batch_normalization: bool = False,
+        bias: bool = True,
+        dropout: float | None = None,
+        **kwargs,
+    ) -> None:
+        r"""Construct and initialize the MLP backbone network.
+
+        **Args:**
+        - **input_dim** (`int`): The input dimension. Any data need to be flattened before entering the MLP. Note that it is not required in convolutional networks.
+        - **hidden_dims** (`list[int]`): List of hidden layer dimensions. It can be an empty list, which means a single-layer MLP, and it can be as many layers as you want. Note that it doesn't include the last dimension, which we take as the output dimension.
+        - **output_dim** (`int`): The output dimension that connects to output heads.
+        - **activation_layer** (`nn.Module` | `None`): Activation function of each layer (if not `None`). If `None`, this layer won't be used. Default `nn.ReLU`.
+        - **batch_normalization** (`bool`): Whether to use batch normalization after the fully connected layers. Default `False`.
+        - **bias** (`bool`): Whether to use bias in the linear layer. Default `True`.
+        - **dropout** (`float` | `None`): The probability for the dropout layer. If `None`, this layer won't be used. Default `None`.
+        - **kwargs**: Reserved for multiple inheritance.
+        """
+        super().__init__(output_dim=output_dim, **kwargs)
+
+        self.input_dim: int = input_dim
+        r"""The input dimension of the MLP backbone network."""
+        self.hidden_dims: list[int] = hidden_dims
+        r"""The hidden dimensions of the MLP backbone network."""
+        self.output_dim: int = output_dim
+        r"""The output dimension of the MLP backbone network."""
+
+        self.num_fc_layers: int = len(hidden_dims) + 1
+        r"""The number of fully-connected layers in the MLP backbone network, which helps form the loops in constructing layers and forward pass."""
+        self.batch_normalization: bool = batch_normalization
+        r"""Whether to use batch normalization after the fully-connected layers."""
+        self.activation: bool = activation_layer is not None
+        r"""Whether to use activation function after the fully-connected layers."""
+        self.dropout: bool = dropout is not None
+        r"""Whether to use dropout after the fully-connected layers."""
+
+        self.fc: nn.ModuleList = nn.ModuleList()
+        r"""The list of fully connected (`nn.Linear`) layers."""
+        if self.batch_normalization:
+            self.fc_bn: nn.ModuleList = nn.ModuleList()
+            r"""The list of batch normalization (`nn.BatchNorm1d`) layers after the fully connected layers."""
+        if self.activation:
+            self.fc_activation: nn.ModuleList = nn.ModuleList()
+            r"""The list of activation layers after the fully connected layers."""
+        if self.dropout:
+            self.fc_dropout: nn.ModuleList = nn.ModuleList()
+            r"""The list of dropout layers after the fully connected layers."""
+
+        # construct the weighted fully connected layers and attached layers (batch norm, activation, dropout, etc.) in a loop
+        for layer_idx in range(self.num_fc_layers):
+
+            # the input and output dim of the current weighted layer
+            layer_input_dim = (
+                self.input_dim if layer_idx == 0 else self.hidden_dims[layer_idx - 1]
+            )
+            layer_output_dim = (
+                self.hidden_dims[layer_idx]
+                if layer_idx != len(self.hidden_dims)
+                else self.output_dim
+            )
+
+            # construct the fully connected layer
+            self.fc.append(
+                nn.Linear(
+                    in_features=layer_input_dim,
+                    out_features=layer_output_dim,
+                    bias=bias,
+                )
+            )
+
+            # update the weighted layer names
+            full_layer_name = f"fc/{layer_idx}"
+            self.weighted_layer_names.append(full_layer_name)
+
+            # construct the batch normalization layer
+            if self.batch_normalization:
+                self.fc_bn.append(nn.BatchNorm1d(num_features=(layer_output_dim)))
+
+            # construct the activation layer
+            if self.activation:
+                self.fc_activation.append(activation_layer())
+
+            # construct the dropout layer
+            if self.dropout:
+                self.fc_dropout.append(nn.Dropout(dropout))
+
+    def forward(
+        self, input: Tensor, stage: str = None
+    ) -> tuple[Tensor, dict[str, Tensor]]:
+        r"""The forward pass for data. It is the same for all tasks.
+
+        **Args:**
+        - **input** (`Tensor`): The input tensor from data.
+
+        **Returns:**
+        - **output_feature** (`Tensor`): The output feature tensor to be passed into heads. This is the main target of backpropagation.
+        - **activations** (`dict[str, Tensor]`): The hidden features (after activation) in each weighted layer. Keys (`str`) are the weighted layer names and values (`Tensor`) are the hidden feature tensors. This is used for certain algorithms that need to use hidden features for various purposes.
+        """
+        batch_size = input.size(0)
+        activations = {}
+
+        x = input.view(batch_size, -1)  # flatten before going through MLP
+
+        for layer_idx, layer_name in enumerate(self.weighted_layer_names):
+            x = self.fc[layer_idx](x)  # fully-connected layer first
+            if self.batch_normalization:
+                x = self.fc_bn[layer_idx](
+                    x
+                )  # batch normalization can be before or after activation. We put it before activation here
+            if self.activation:
+                x = self.fc_activation[layer_idx](x)  # activation function third
+            activations[layer_name] = x  # store the hidden feature
+            if self.dropout:
+                x = self.fc_dropout[layer_idx](x)  # dropout last
+
+        output_feature = x
+
+        return output_feature, activations
+
+
+class CLMLP(CLBackbone, MLP):
+    """Multi-layer perceptron (MLP), a.k.a. fully connected network. Used as a continual learning backbone.
+
+    MLP is a dense network architecture with several fully connected layers, each followed by an activation function. The last layer connects to the CL output heads.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dims: list[int],
+        output_dim: int,
+        activation_layer: nn.Module | None = nn.ReLU,
+        batch_normalization: bool = False,
+        bias: bool = True,
+        dropout: float | None = None,
+        **kwargs,
+    ) -> None:
+        r"""Construct and initialize the CLMLP backbone network.
+
+        **Args:**
+        - **input_dim** (`int`): the input dimension. Any data need to be flattened before going in MLP. Note that it is not required in convolutional networks.
+        - **hidden_dims** (`list[int]`): list of hidden layer dimensions. It can be empty list which means single-layer MLP, and it can be as many layers as you want. Note that it doesn't include the last dimension which we take as output dimension.
+        - **output_dim** (`int`): the output dimension which connects to CL output heads.
+        - **activation_layer** (`nn.Module` | `None`): activation function of each layer (if not `None`), if `None` this layer won't be used. Default `nn.ReLU`.
+        - **batch_normalization** (`bool`): whether to use batch normalization after the fully-connected layers. Default `False`.
+        - **bias** (`bool`): whether to use bias in the linear layer. Default `True`.
+        - **dropout** (`float` | `None`): the probability for the dropout layer, if `None` this layer won't be used. Default `None`.
+        - **kwargs**: Reserved for multiple inheritance.
+        """
+        super().__init__(
+            input_dim=input_dim,
+            hidden_dims=hidden_dims,
+            output_dim=output_dim,
+            activation_layer=activation_layer,
+            batch_normalization=batch_normalization,
+            bias=bias,
+            dropout=dropout,
+            **kwargs,
+        )
+
+    def forward(
+        self, input: Tensor, stage: str = None, task_id: int | None = None
+    ) -> tuple[Tensor, dict[str, Tensor]]:
+        r"""The forward pass for data. It is the same for all tasks.
+
+        **Args:**
+        - **input** (`Tensor`): The input tensor from data.
+        - **stage** (`str` | `None`): Unused. Kept for API compatibility with other backbones.
+        - **task_id** (`int` | `None`): Unused. Kept for API compatibility with other continual learning backbones.
+
+        **Returns:**
+        - **output_feature** (`Tensor`): The output feature tensor to be passed into heads. This is the main target of backpropagation.
+        - **activations** (`dict[str, Tensor]`): The hidden features (after activation) in each weighted layer. Key (`str`) is the weighted layer name; value (`Tensor`) is the hidden feature tensor. This is used for continual learning algorithms that need hidden features for various purposes.
+        """
+        return MLP.forward(self, input, stage)  # call the MLP forward method

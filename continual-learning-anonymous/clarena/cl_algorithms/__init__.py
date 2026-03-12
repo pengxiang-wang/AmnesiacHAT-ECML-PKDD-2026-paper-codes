@@ -1,0 +1,61 @@
+r"""
+
+# Continual Learning Algorithms
+
+This submodule provides the **continual learning algorithms** in the package.
+
+Here are the base classes for CL algorithms, which inherit from PyTorch Lightning `LightningModule`:
+
+- `CLAlgorithm`: the base class for all continual learning algorithms.
+    - `UnlearnableCLAlgorithm`: the base class for unlearnable continual learning algorithms.
+        - `AmnesiacCULAlgorithm`: the base class for Amnesiac continual learning algorithms.
+
+Please note that this is API documentation. External documentation links are omitted in the anonymous release:
+`<ANONYMIZED_URL>`.
+
+
+"""
+
+from .base import CLAlgorithm, UnlearnableCLAlgorithm, AmnesiacCLAlgorithm
+
+# finetuning first
+from .finetuning import Finetuning, AmnesiacFinetuning
+from .independent import Independent, UnlearnableIndependent
+from .fix import Fix
+from .random import Random
+
+from .lwf import LwF, AmnesiacLwF
+from .ewc import EWC, AmnesiacEWC
+from .der import DER, DERpp, AmnesiacDER, AmnesiacDERpp
+from .clpu_derpp import CLPUDERpp
+from .cbp import CBP
+
+from .hat import HAT
+from .adahat import AdaHAT
+from .fgadahat import FGAdaHAT
+from .amnesiac_hat import AmnesiacHAT
+from .wsn import WSN
+
+# from .nispa import NISPA
+
+
+__all__ = [
+    "CLAlgorithm",
+    "UnlearnableCLAlgorithm",
+    "AmnesiacCLAlgorithm",
+    "regularizers",
+    "finetuning",
+    "independent",
+    "fix",
+    "random",
+    "lwf",
+    "ewc",
+    "der",
+    "cbp",
+    "hat",
+    "adahat",
+    "fgadahat",
+    "amnesiac_hat",
+    "wsn",
+    # "nispa",
+]
