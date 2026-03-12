@@ -1,0 +1,8 @@
+defaults:
+  - csv: default.yaml
+  - tensorboard: null
+  - comet: null
+  - wandb: null
+  - neptune: null
+  - mlflow: null
+  

@@ -1,0 +1,47 @@
+# @package _global_
+# make sure to include the above commented global setting!
+
+# pipeline info
+pipeline: CUL_MAIN_EXPR
+expr_name: lwf_scifar10_5tasks
+train_tasks: 5
+eval_after_tasks: 5
+global_seed: 1
+
+# paradigm settings
+cl_paradigm: TIL
+unlearning_requests: 
+  2: [1]
+  4: [2]
+  5: [5]
+unlearnable_age: 4
+
+
+# components
+defaults:
+  - /cl_dataset: split_cifar10.yaml
+  - /backbone: clresnet.yaml
+  - /cl_algorithm: amnesiac_lwf.yaml
+  - /cul_algorithm: amnesiac_lwf_unlearn.yaml
+  - /optimizer: adam.yaml
+  - /lr_scheduler: reduce_lr_on_plateau.yaml
+  - /trainer: single_gpu.yaml
+  - /metrics: cl_main_expr_default.yaml
+  - /lightning_loggers: default.yaml
+  - /callbacks: cul_default.yaml
+  - /hydra: default.yaml
+  - /misc: default.yaml
+
+# outputs
+output_dir: outputs/${expr_name}/${misc.timestamp}
+
+# overrides
+distillation_reg_factor: 0.01
+distillation_reg_temperature: 0.1
+backbone: 
+  batch_normalization: False
+trainer: 
+  max_epochs: 20
+
+cl_algorithm:
+  batch_normalization: False # Must be false otherwise update deletion will cause loss explode and NaN
